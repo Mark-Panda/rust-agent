@@ -43,7 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 创建Agent
     let agent = ReActAgent::new(
         tools,
-        "deepseek-v3-250324".to_string(),
+        "kimi-k2-250711".to_string(),
         project_dir.to_string_lossy().to_string(),
     )?;
 

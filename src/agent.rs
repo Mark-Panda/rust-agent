@@ -101,6 +101,7 @@ impl ReActAgent {
             println!("\n\n🔍 Observation：{}", observation);
 
             // 添加观察结果到消息列表
+            #[allow(deprecated)]
             messages.push(ChatCompletionRequestMessage::Assistant(
                 async_openai::types::ChatCompletionRequestAssistantMessage {
                     content: Some(
