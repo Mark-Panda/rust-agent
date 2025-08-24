@@ -1,9 +1,51 @@
 use crate::errors::AgentResult;
 use async_trait::async_trait;
 use std::collections::HashMap;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tokio::fs;
+
+/// 验证路径是否在项目目录内
+fn is_path_within_project(project_dir: &Path, target_path: &Path) -> bool {
+    let project_dir = project_dir
+        .canonicalize()
+        .unwrap_or_else(|_| project_dir.to_path_buf());
+    let target_path = target_path
+        .canonicalize()
+        .unwrap_or_else(|_| target_path.to_path_buf());
+
+    target_path.starts_with(&project_dir)
+}
+
+/// 安全地解析路径，确保在项目目录内
+fn safe_resolve_path(
+    project_dir: &str,
+    user_path: &str,
+) -> Result<PathBuf, crate::errors::AgentError> {
+    let project_path = PathBuf::from(project_dir);
+    let user_path = Path::new(user_path);
+
+    let final_path = if user_path.is_absolute() {
+        user_path.to_path_buf()
+    } else {
+        // 相对路径，拼接到项目目录
+        let mut resolved_path = project_path.clone();
+        resolved_path.push(user_path);
+        resolved_path
+    };
+
+    // 验证路径是否在项目目录内
+    if !is_path_within_project(&project_path, &final_path) {
+        return Err(crate::errors::AgentError::RuntimeError(format!(
+            "路径 '{}' 不在项目目录 '{}' 内，操作被拒绝",
+            final_path.display(),
+            project_path.display()
+        )));
+    }
+
+    Ok(final_path)
+}
 
 #[async_trait]
 pub trait Tool: Send + Sync {
@@ -81,15 +123,8 @@ impl Tool for ReadFileTool {
 
         let file_path = &args[0];
 
-        // 处理文件路径：如果是相对路径，则转换为项目目录下的绝对路径
-        let final_path = if Path::new(file_path).is_absolute() {
-            file_path.clone()
-        } else {
-            // 相对路径，拼接到项目目录
-            let mut project_path = PathBuf::from(&self.project_directory);
-            project_path.push(file_path);
-            project_path.to_string_lossy().to_string()
-        };
+        // 使用安全的路径解析，确保路径在项目目录内
+        let final_path = safe_resolve_path(&self.project_directory, file_path)?;
 
         let content = fs::read_to_string(&final_path).await?;
         Ok(content)
@@ -126,25 +161,30 @@ impl Tool for WriteFileTool {
         let file_path = &args[0];
         let content = &args[1];
 
-        // 处理文件路径：如果是相对路径，则转换为项目目录下的绝对路径
-        let final_path = if Path::new(file_path).is_absolute() {
-            file_path.clone()
-        } else {
-            // 相对路径，拼接到项目目录
-            let mut project_path = PathBuf::from(&self.project_directory);
-            project_path.push(file_path);
-            project_path.to_string_lossy().to_string()
-        };
+        // 使用安全的路径解析，确保路径在项目目录内
+        let final_path = safe_resolve_path(&self.project_directory, file_path)?;
 
         // 确保目录存在
-        if let Some(parent) = Path::new(&final_path).parent() {
+        if let Some(parent) = final_path.parent() {
             if !parent.exists() {
+                print!("父目录 '{}' 不存在，是否创建？(Y/N): ", parent.display());
+                io::stdout().flush()?;
+
+                let mut input = String::new();
+                io::stdin().read_line(&mut input)?;
+
+                if input.trim().to_lowercase() != "y" {
+                    return Ok("用户取消写入文件".to_string());
+                }
+
+                // 创建父目录
                 fs::create_dir_all(parent).await?;
+                println!("已创建父目录: {}", parent.display());
             }
         }
 
         fs::write(&final_path, content).await?;
-        Ok(format!("写入成功: {}", final_path))
+        Ok(format!("写入成功: {}", final_path.display()))
     }
 }
 
@@ -175,10 +215,147 @@ impl Tool for RunTerminalCommandTool {
             Ok(format!("执行成功: {}", stdout))
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            Err(crate::errors::AgentError::CommandExecutionError(
-                stderr.to_string(),
-            ))
+            Err(crate::errors::AgentError::RuntimeError(format!(
+                "命令执行错误: {}",
+                stderr
+            )))
         }
+    }
+}
+
+pub struct CreateDirectoryTool {
+    project_directory: String,
+}
+
+impl CreateDirectoryTool {
+    pub fn new(project_directory: String) -> Self {
+        Self { project_directory }
+    }
+}
+
+#[async_trait]
+impl Tool for CreateDirectoryTool {
+    fn name(&self) -> &str {
+        "create_directory"
+    }
+
+    fn description(&self) -> &str {
+        "创建目录，如果父目录不存在会询问是否创建"
+    }
+
+    async fn execute(&self, args: Vec<String>) -> AgentResult<String> {
+        if args.len() != 1 {
+            return Err(crate::errors::AgentError::RuntimeError(
+                "create_directory 需要一个目录路径参数".to_string(),
+            ));
+        }
+
+        let dir_path = &args[0];
+
+        // 使用安全的路径解析，确保路径在项目目录内
+        let final_path = safe_resolve_path(&self.project_directory, dir_path)?;
+
+        let path = &final_path;
+
+        // 如果目录已存在，直接返回
+        if path.exists() && path.is_dir() {
+            return Ok(format!("目录已存在: {}", final_path.display()));
+        }
+
+        // 检查父目录是否存在
+        if let Some(parent) = path.parent() {
+            if !parent.exists() {
+                print!("父目录 '{}' 不存在，是否创建？(Y/N): ", parent.display());
+                io::stdout().flush()?;
+
+                let mut input = String::new();
+                io::stdin().read_line(&mut input)?;
+
+                if input.trim().to_lowercase() != "y" {
+                    return Ok("用户取消创建目录".to_string());
+                }
+
+                // 创建父目录
+                fs::create_dir_all(parent).await?;
+                println!("已创建父目录: {}", parent.display());
+            }
+        }
+
+        // 创建目标目录
+        fs::create_dir_all(path).await?;
+        Ok(format!("目录创建成功: {}", final_path.display()))
+    }
+}
+
+pub struct CreateFileTool {
+    project_directory: String,
+}
+
+impl CreateFileTool {
+    pub fn new(project_directory: String) -> Self {
+        Self { project_directory }
+    }
+}
+
+#[async_trait]
+impl Tool for CreateFileTool {
+    fn name(&self) -> &str {
+        "create_file"
+    }
+
+    fn description(&self) -> &str {
+        "创建空文件，如果父目录不存在会询问是否创建。创建后可以使用 write_to_file 工具写入内容"
+    }
+
+    async fn execute(&self, args: Vec<String>) -> AgentResult<String> {
+        if args.len() != 1 {
+            return Err(crate::errors::AgentError::RuntimeError(
+                "create_file 需要一个文件路径参数".to_string(),
+            ));
+        }
+
+        let file_path = &args[0];
+
+        // 使用安全的路径解析，确保路径在项目目录内
+        let final_path = safe_resolve_path(&self.project_directory, file_path)?;
+
+        let path = &final_path;
+
+        // 如果文件已存在，询问是否覆盖
+        if path.exists() {
+            print!("文件 '{}' 已存在，是否覆盖？(Y/N): ", path.display());
+            io::stdout().flush()?;
+
+            let mut input = String::new();
+            io::stdin().read_line(&mut input)?;
+
+            if input.trim().to_lowercase() != "y" {
+                return Ok("用户取消创建文件".to_string());
+            }
+        }
+
+        // 检查父目录是否存在
+        if let Some(parent) = path.parent() {
+            if !parent.exists() {
+                print!("父目录 '{}' 不存在，是否创建？(Y/N): ", parent.display());
+                io::stdout().flush()?;
+
+                let mut input = String::new();
+                io::stdin().read_line(&mut input)?;
+
+                if input.trim().to_lowercase() != "y" {
+                    return Ok("用户取消创建文件".to_string());
+                }
+
+                // 创建父目录
+                fs::create_dir_all(parent).await?;
+                println!("已创建父目录: {}", parent.display());
+            }
+        }
+
+        // 创建空文件
+        fs::write(path, "").await?;
+        Ok(format!("文件创建成功: {}", final_path.display()))
     }
 }
 
@@ -186,7 +363,9 @@ impl Tool for RunTerminalCommandTool {
 pub fn create_default_tools(project_directory: String) -> ToolRegistry {
     let mut registry = ToolRegistry::new();
     registry.register(ReadFileTool::new(project_directory.clone()));
-    registry.register(WriteFileTool::new(project_directory));
+    registry.register(WriteFileTool::new(project_directory.clone()));
     registry.register(RunTerminalCommandTool);
+    registry.register(CreateDirectoryTool::new(project_directory.clone()));
+    registry.register(CreateFileTool::new(project_directory));
     registry
 }

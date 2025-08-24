@@ -6,8 +6,10 @@ use async_openai::{
     types::{ChatCompletionRequestMessage, CreateChatCompletionRequestArgs},
     Client,
 };
+use futures::StreamExt;
 use regex::Regex;
 use std::env;
+use std::io::Write;
 use std::path::Path;
 
 pub struct ReActAgent {
@@ -63,7 +65,7 @@ impl ReActAgent {
 
         loop {
             // 请求模型
-            let content = self.call_model(&messages).await?;
+            let content = self.call_model_stream(&messages).await?;
 
             // 检测 Thought
             if let Some(thought) = self.extract_thought(&content) {
@@ -137,29 +139,76 @@ impl ReActAgent {
             .render(&tool_list, &operating_system, &file_list))
     }
 
-    async fn call_model(&self, messages: &[ChatCompletionRequestMessage]) -> AgentResult<String> {
+    async fn call_model_stream(
+        &self,
+        messages: &[ChatCompletionRequestMessage],
+    ) -> AgentResult<String> {
         println!("\n\n正在请求模型，请稍等...");
 
         let request = CreateChatCompletionRequestArgs::default()
             .model(&self.model)
             .messages(messages.to_vec())
+            .stream(true)
             .build()
             .map_err(|e| AgentError::RuntimeError(format!("构建请求失败: {}", e)))?;
 
-        let response = self
+        let mut stream = self
             .client
             .chat()
-            .create(request)
+            .create_stream(request)
             .await
             .map_err(|e| AgentError::RuntimeError(format!("API调用失败: {}", e)))?;
 
-        let content = response
-            .choices
-            .first()
-            .and_then(|choice| choice.message.content.as_ref())
-            .ok_or_else(|| AgentError::RuntimeError("响应中没有内容".to_string()))?;
+        let mut content = String::new();
+        let mut buffer = String::new();
 
-        Ok(content.clone())
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok(chunk) => {
+                    if let Some(choice) = chunk.choices.first() {
+                        let delta = &choice.delta;
+                        if let Some(text) = &delta.content {
+                            // 流式输出文本
+                            print!("{}", text);
+                            std::io::stdout().flush().map_err(|e| {
+                                AgentError::RuntimeError(format!("输出刷新失败: {}", e))
+                            })?;
+
+                            content.push_str(text);
+                            buffer.push_str(text);
+
+                            // 检测是否包含完整的标签
+                            if self.should_process_buffer(&buffer) {
+                                // 如果缓冲区包含完整的标签，处理它
+                                if let Some(thought) = self.extract_thought(&buffer) {
+                                    println!("\n\n💭 Thought: {}", thought);
+                                    buffer.clear();
+                                }
+
+                                // 如果检测到 action 标签，暂停流式输出等待用户确认
+                                if buffer.contains("</action>") {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("\n\n流式输出错误: {}", e);
+                    break;
+                }
+            }
+        }
+
+        println!(); // 换行
+        Ok(content)
+    }
+
+    fn should_process_buffer(&self, buffer: &str) -> bool {
+        // 检查缓冲区是否包含完整的标签
+        buffer.contains("</thought>")
+            || buffer.contains("</action>")
+            || buffer.contains("</final_answer>")
     }
 
     fn extract_thought(&self, content: &str) -> Option<String> {
