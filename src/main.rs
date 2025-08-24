@@ -40,12 +40,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 创建工具注册表
     let tools = create_default_tools(project_dir.to_string_lossy().to_string());
 
+    // 从环境变量获取模型名称
+    let model_name =
+        std::env::var("OPENAI_MODEL_NAME").unwrap_or_else(|_| "kimi-k2-250711".to_string());
+
     // 创建Agent
-    let agent = ReActAgent::new(
-        tools,
-        "kimi-k2-250711".to_string(),
-        project_dir.to_string_lossy().to_string(),
-    )?;
+    let agent = ReActAgent::new(tools, model_name, project_dir.to_string_lossy().to_string())?;
 
     // 获取用户输入
     print!("请输入任务：");

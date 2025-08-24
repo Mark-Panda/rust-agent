@@ -27,10 +27,13 @@ impl ReActAgent {
         let api_key = env::var("OPENROUTER_API_KEY")
             .map_err(|_| AgentError::EnvVarError("OPENROUTER_API_KEY".to_string()))?;
 
+        let api_base = env::var("OPENAI_API_BASE")
+            .map_err(|_| AgentError::EnvVarError("OPENAI_API_BASE".to_string()))?;
+
         // 配置OpenAI客户端使用OpenRouter
         let config = async_openai::config::OpenAIConfig::new()
             .with_api_key(api_key)
-            .with_api_base("https://ark.cn-beijing.volces.com/api/v3");
+            .with_api_base(&api_base);
 
         let client = Client::with_config(config);
 
