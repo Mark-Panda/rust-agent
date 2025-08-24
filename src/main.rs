@@ -47,29 +47,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 创建Agent
     let agent = ReActAgent::new(tools, model_name, project_dir.to_string_lossy().to_string())?;
 
-    // 获取用户输入
-    print!("请输入任务：");
-    io::stdout().flush()?;
+    println!("🤖 Rust Agent 已启动！输入 'quit' 或 'exit' 退出程序。");
+    println!("💡 你可以继续输入新的任务，Agent会记住之前的对话上下文。\n");
 
-    let mut task = String::new();
-    io::stdin().read_line(&mut task)?;
-    let task = task.trim();
+    // 持续对话循环
+    loop {
+        // 获取用户输入
+        print!("请输入任务：");
+        io::stdout().flush()?;
 
-    if task.is_empty() {
-        println!("任务不能为空");
-        return Ok(());
-    }
+        let mut task = String::new();
+        io::stdin().read_line(&mut task)?;
+        let task = task.trim();
 
-    println!("开始执行任务: {}", task);
-
-    // 运行Agent
-    match agent.run(task).await {
-        Ok(final_answer) => {
-            println!("\n\n✅ Final Answer：{}", final_answer);
+        // 检查退出命令
+        if task.is_empty() {
+            println!("任务不能为空，请重新输入");
+            continue;
         }
-        Err(e) => {
-            eprintln!("Agent执行错误: {}", e);
-            std::process::exit(1);
+
+        if task.to_lowercase() == "quit" || task.to_lowercase() == "exit" {
+            println!("👋 再见！");
+            break;
+        }
+
+        println!("开始执行任务: {}", task);
+
+        // 运行Agent
+        match agent.run(task).await {
+            Ok(final_answer) => {
+                println!("\n\n✅ Final Answer：{}", final_answer);
+                println!("\n{}", "=".repeat(50));
+            }
+            Err(e) => {
+                eprintln!("Agent执行错误: {}", e);
+                println!("请重新输入任务或输入 'quit' 退出程序");
+                println!("\n{}", "=".repeat(50));
+            }
         }
     }
 
