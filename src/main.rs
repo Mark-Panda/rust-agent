@@ -45,10 +45,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::env::var("OPENAI_MODEL_NAME").unwrap_or_else(|_| "kimi-k2-250711".to_string());
 
     // 创建Agent
-    let agent = ReActAgent::new(tools, model_name, project_dir.to_string_lossy().to_string())?;
+    let mut agent = ReActAgent::new(tools, model_name, project_dir.to_string_lossy().to_string())?;
 
     println!("🤖 Rust Agent 已启动！输入 'quit' 或 'exit' 退出程序。");
-    println!("💡 你可以继续输入新的任务，Agent会记住之前的对话上下文。\n");
+    println!("💡 你可以继续输入新的任务，Agent会记住之前的对话上下文。");
+    println!("💡 输入 'clear' 可以清除对话历史。\n");
 
     // 持续对话循环
     loop {
@@ -71,7 +72,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             break;
         }
 
+        if task.to_lowercase() == "clear" {
+            agent.clear_conversation_history();
+            println!("🗑️  对话历史已清除！");
+            println!("📊 当前对话历史长度: {}", agent.get_conversation_length());
+            println!("\n{}", "=".repeat(50));
+            continue;
+        }
+
         println!("开始执行任务: {}", task);
+        println!("📊 当前对话历史长度: {}", agent.get_conversation_length());
 
         // 运行Agent
         match agent.run(task).await {

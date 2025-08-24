@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>跳一跳小游戏</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(to bottom, #87CEEB, #98FB98);
+            font-family: Arial, sans-serif;
+        }
+        
+        #gameContainer {
+            position: relative;
+            width: 800px;
+            height: 600px;
+            border: 2px solid #333;
+            background: linear-gradient(to bottom, #87CEEB, #E0F6FF);
+            overflow: hidden;
+        }
+        
+        #gameCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        
+        #score {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+            z-index: 10;
+        }
+        
+        #gameOver {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 30px;
+            border-radius: 10px;
+            text-align: center;
+            display: none;
+            z-index: 20;
+        }
+        
+        #restartBtn {
+            margin-top: 20px;
+            padding: 10px 20px;
+            font-size: 18px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        
+        #restartBtn:hover {
+            background: #45a049;
+        }
+        
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #333;
+            font-size: 16px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        <div id="score">得分: 0</div>
+        <div id="gameOver">
+            <h2>游戏结束</h2>
+            <p id="finalScore">最终得分: 0</p>
+            <button id="restartBtn">重新开始</button>
+        </div>
+        <div id="instructions">
+            按住空格键蓄力，松开发射！
+        </div>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>
